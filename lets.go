@@ -147,6 +147,7 @@
 package letsencrypt
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -165,7 +166,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/context"
 	"golang.org/x/time/rate"
 
 	"github.com/xenolf/lego/acme"
