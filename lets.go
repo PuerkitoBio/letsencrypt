@@ -159,12 +159,14 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -340,7 +342,7 @@ func (m *Manager) CacheFile(name string) error {
 	}
 	go func() {
 		for range m.Watch() {
-			err := ioutil.WriteFile(name, []byte(m.Marshal()), 0600)
+			err := writeFile(name, []byte(m.Marshal()))
 			if err != nil {
 				log.Printf("writing letsencrypt cache: %v", err)
 			}
@@ -707,10 +709,10 @@ func (e *cacheEntry) refresh() {
 func (m *Manager) verify(host string) (cert *tls.Certificate, refreshTime time.Time, err error) {
 	c, err := acme.NewClient(letsEncryptURL, &m.state, acme.EC256)
 	if err != nil {
-		return
+		return cert, refreshTime, err
 	}
 	if err = c.SetChallengeProvider(acme.TLSSNI01, tlsProvider{m}); err != nil {
-		return
+		return cert, refreshTime, err
 	}
 	c.SetChallengeProvider(acme.TLSSNI01, tlsProvider{m})
 	c.ExcludeChallenges([]acme.Challenge{acme.HTTP01})
@@ -720,7 +722,7 @@ func (m *Manager) verify(host string) (cert *tls.Certificate, refreshTime time.T
 			log.Printf("ObtainCertificate %v => %v", host, errmap)
 		}
 		err = fmt.Errorf("%v", errmap)
-		return
+		return cert, refreshTime, err
 	}
 
 	entryCert := stateCert{
@@ -732,11 +734,10 @@ func (m *Manager) verify(host string) (cert *tls.Certificate, refreshTime time.T
 		if debug {
 			log.Printf("ObtainCertificate %v toTLS failure: %v", host, err)
 		}
-		err = err
-		return
+		return cert, refreshTime, err
 	}
 	if refreshTime, err = certRefreshTime(cert); err != nil {
-		return
+		return cert, refreshTime, err
 	}
 
 	m.mu.Lock()
@@ -839,4 +840,24 @@ func encodePEM(data interface{}) string {
 	}
 
 	return string(pem.EncodeToMemory(b))
+}
+
+// writeFile atomically updates content of the file
+func writeFile(filename string, data []byte) error {
+	f, err := ioutil.TempFile(filepath.Dir(filename), ".dump-")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	defer os.Remove(f.Name())
+	switch n, err := f.Write(data); {
+	case err != nil:
+		return err
+	case err == nil && n < len(data):
+		return io.ErrShortWrite
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), filename)
 }
