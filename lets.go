@@ -562,13 +562,16 @@ func (m *Manager) Cert(host string) (*tls.Certificate, error) {
 	entry, ok := m.certCache[host]
 	if !ok {
 		if host == localhost {
+			log.Printf("generating self-signed certificate...")
 			c, err := m.certSelfSigned()
 			if err != nil {
+				log.Printf("generating self-signed failed: %v", err)
 				return nil, err
 			}
 
 			entry = &cacheEntry{host: host, m: m, cert: c}
 		} else {
+			log.Printf("generating let's encrypt certificate for %v...", host)
 			r := m.rateLimit.Reserve()
 			ok := r.OK()
 			if ok {
